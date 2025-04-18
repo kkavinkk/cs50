@@ -1,0 +1,28 @@
+#!/bin/bash
+
+# if no command line argument is given for the test set file print a usage msg to "stderr"
+# if the file stem.desc does not exist print "stem: No test description"
+# if the file stem.desc does exist print out the contents of "stem.desc"
+# steps b and c repeat for every stem in the test set file
+
+# Input file from command-line argument
+input_file="$1"
+
+# Print usage message to stderr if no argument is given
+if [ $# -eq 0 ]; then
+    echo "Usage: $0 testSetFile" >&2
+    exit 1
+fi
+
+# Main loop: read input file line by line
+while IFS= read -r line; do
+    for stem in $line; do
+        desc_file="${stem}.desc"
+
+        if [[ ! -f "$desc_file" ]]; then
+            echo "${stem} No test description"
+        else
+            cat "$desc_file"
+        fi
+    done
+done < "$input_file"
