@@ -1,0 +1,61 @@
+#!/bin/bash
+
+#preformt he following steps for each file stem:
+
+# run the commend fgiven to the script while redirecting input from the file stem.in
+# compare the output from the execution of the command to the contents of stem.out
+# if the output does not differ then output "Test <stem> passed"
+# If the output foes differ then output "Test <stem> failed"
+#next line has the actual output
+
+
+# Ensure correct usage
+if [ "$#" -ne 2 ]; then
+    echo "Usage: $0 <command> <test_set_file>"
+    exit 1
+fi
+
+command_to_run="$1"
+test_set_file="$2"
+
+# Ensure the test set file exists
+if [ ! -f "$test_set_file" ]; then
+    echo "Error: Test set file '$test_set_file' not found."
+    exit 1
+fi
+
+# Read each test case stem from the test set file
+while read -r stem; do
+    input_file="${stem}.in"
+    output_file="${stem}.out"
+    temp_output=$(mktemp)
+
+    # Ensure input file exists
+    if [ ! -f "$input_file" ]; then
+        echo "Error: Input file '$input_file' not found. Skipping test '$stem'."
+        continue
+    fi
+
+    # Ensure output file exists
+    if [ ! -f "$output_file" ]; then
+        echo "Error: Expected output file '$output_file' not found. Skipping test '$stem'."
+        continue
+    fi
+
+    # Run the command with input redirection and capture output
+    $command_to_run < "$input_file" > "$temp_output"
+
+    # Compare outputs
+    if diff -q "$temp_output" "$output_file" > /dev/null; then
+        echo "Test $stem passed"
+    else
+        echo "Test $stem failed"
+        echo "Expected output:"
+        cat "$output_file"
+        echo "Actual output:"
+        cat "$temp_output"
+    fi
+
+    # Cleanup temporary file
+    rm "$temp_output"
+done < "$test_set_file"
