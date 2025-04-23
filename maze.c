@@ -1,121 +1,191 @@
-#include "maze.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <assert.h>
+#include "maze.h"
 
 struct Maze {
-    char **grid;
-    int width, height;
-    int playerX, playerY;
-    int startX, startY;
+    char **tiles;
+    int width;
+    int height;
+    struct Pos start;
+    struct Pos current;
 };
 
+// Helper to check if a character is a digit ('0'–'9')
+int isDigit(char c) {
+    return c >= '0' && c <= '9';
+}
+
+// Helper to copy a line
+char *copyLine(const char *src, int len) {
+    char *line = malloc(len + 1);
+    strncpy(line, src, len);
+    line[len] = '\0';
+    return line;
+}
+
+// Read maze
 struct Maze *readMaze() {
-    char buffer[256];
-    struct Maze *maze = malloc(sizeof(struct Maze));
-    if (!maze) return NULL;
-    
-    maze->grid = NULL;
-    maze->height = 0;
-    maze->width = 0;
+    int capacity = 8;
+    int height = 0;
+    int width = -1;
+    char **rows = malloc(capacity * sizeof(char *));
+    if (!rows) return NULL;
+
+    char buffer[1024];
     int startCount = 0, goalCount = 0;
 
-    while (fgets(buffer, sizeof(buffer), stdin) && buffer[0] != '\n') {
+    while (fgets(buffer, sizeof(buffer), stdin)) {
+        if (buffer[0] == '\n') break;
         int len = strlen(buffer);
-        if (buffer[len - 1] == '\n') buffer[len - 1] = '\0';
-        
-        maze->grid = realloc(maze->grid, (maze->height + 1) * sizeof(char *));
-        maze->grid[maze->height] = strdup(buffer);
-        
-        if (maze->height == 0) maze->width = strlen(buffer);
-        if (maze->width != strlen(buffer)) {
-            free(maze);
+        if (buffer[len - 1] == '\n') buffer[--len] = '\0';
+
+        if (width == -1) width = len;
+        if (len != width) {
+            for (int i = 0; i < height; i++) free(rows[i]);
+            free(rows);
             return NULL;
         }
 
-        for (int i = 0; i < maze->width; i++) {
-            if (buffer[i] == 'S') {
-                startCount++;
-                maze->startX = i;
-                maze->startY = maze->height;
-                maze->playerX = i;
-                maze->playerY = maze->height;
+        if (height >= capacity) {
+            capacity *= 2;
+            char **temp = realloc(rows, capacity * sizeof(char *));
+            if (!temp) {
+                for (int i = 0; i < height; i++) free(rows[i]);
+                free(rows);
+                return NULL;
             }
+            rows = temp;
+        }
+
+        rows[height] = copyLine(buffer, len);
+        for (int i = 0; i < len; i++) {
+            if (buffer[i] == 'S') startCount++;
             if (buffer[i] == 'G') goalCount++;
         }
-        maze->height++;
+        height++;
     }
 
     if (startCount != 1 || goalCount < 1) {
-        free(maze);
+        for (int i = 0; i < height; i++) free(rows[i]);
+        free(rows);
         return NULL;
     }
 
-    return maze;
-}
+    struct Maze *m = malloc(sizeof(struct Maze));
+    m->width = width;
+    m->height = height;
+    m->tiles = rows;
 
-struct Pos makeMove(struct Maze *maze, char direction) {
-    int dx = 0, dy = 0;
-    if (direction == 'n') dy = -1;
-    else if (direction == 's') dy = 1;
-    else if (direction == 'e') dx = 1;
-    else if (direction == 'w') dx = -1;
-
-    int newX = maze->playerX + dx;
-    int newY = maze->playerY + dy;
-
-    if (newX < 0 || newX >= maze->width || newY < 0 || newY >= maze->height || maze->grid[newY][newX] == 'X') {
-        return (struct Pos){maze->playerX, maze->playerY};
-    }
-
-    while (maze->grid[newY][newX] == 'I') {
-        if (newX + dx < 0 || newX + dx >= maze->width || newY + dy < 0 || newY + dy >= maze->height ||
-            maze->grid[newY + dy][newX + dx] == 'X') break;
-        newX += dx;
-        newY += dy;
-    }
-
-    if (maze->grid[newY][newX] == 'G') {
-        return (struct Pos){-1, -1};
-    }
-
-    maze->playerX = newX;
-    maze->playerY = newY;
-    return (struct Pos){newX, newY};
-}
-
-void reset(struct Maze *maze) {
-    maze->playerX = maze->startX;
-    maze->playerY = maze->startY;
-}
-
-void printMaze(struct Maze *maze) {
-    for (int i = 0; i < maze->width + 2; i++) printf("=");
-    printf("\n");
-
-    for (int y = 0; y < maze->height; y++) {
-        printf("|");
-        for (int x = 0; x < maze->width; x++) {
-            if (x == maze->playerX && y == maze->playerY) {
-                printf("P");
-            } else {
-                printf("%c", maze->grid[y][x]);
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            if (rows[y][x] == 'S') {
+                m->start.x = x;
+                m->start.y = y;
+                m->current = m->start;
+                break;
             }
         }
-        printf("|\n");
     }
 
-    for (int i = 0; i < maze->width + 2; i++) printf("=");
-    printf("\n");
+    return m;
 }
 
-struct Maze *destroyMaze(struct Maze *maze) {
-    if (!maze) return NULL;
-    for (int i = 0; i < maze->height; i++) {
-        free(maze->grid[i]);
+// Teleport
+void teleport(struct Maze *m) {
+    char digit = m->tiles[m->current.y][m->current.x];
+    for (int y = 0; y < m->height; y++) {
+        for (int x = 0; x < m->width; x++) {
+            if (x == m->current.x && y == m->current.y) continue;
+            if (m->tiles[y][x] == digit) {
+                m->current.x = x;
+                m->current.y = y;
+                return;
+            }
+        }
     }
-    free(maze->grid);
-    free(maze);
+}
+
+// Make a move
+struct Pos makeMove(struct Maze *m, char dir) {
+    int dx = 0, dy = 0;
+    if (dir == 'n') dy = -1;
+    else if (dir == 's') dy = 1;
+    else if (dir == 'e') dx = 1;
+    else if (dir == 'w') dx = -1;
+
+    int nx = m->current.x + dx;
+    int ny = m->current.y + dy;
+
+    if (nx < 0 || ny < 0 || nx >= m->width || ny >= m->height) {
+        return m->current;
+    }
+
+    char next = m->tiles[ny][nx];
+    if (next == 'X') return m->current;
+
+    m->current.x = nx;
+    m->current.y = ny;
+
+    // Slide on ice
+    while (m->tiles[m->current.y][m->current.x] == 'I') {
+        int tx = m->current.x + dx;
+        int ty = m->current.y + dy;
+        if (tx < 0 || ty < 0 || tx >= m->width || ty >= m->height) break;
+        if (m->tiles[ty][tx] == 'X') break;
+        m->current.x = tx;
+        m->current.y = ty;
+    }
+
+    // Teleport
+    if (isDigit(m->tiles[m->current.y][m->current.x])) {
+        teleport(m);
+    }
+
+    // Win
+    if (m->tiles[m->current.y][m->current.x] == 'G') {
+        struct Pos win = { -1, -1 };
+        return win;
+    }
+
+    return m->current;
+}
+
+// Reset player
+void reset(struct Maze *m) {
+    m->current = m->start;
+}
+
+// Print maze
+void printMaze(struct Maze *m) {
+    for (int i = 0; i < m->width + 2; i++) putchar('-');
+    putchar('\n');
+
+    for (int y = 0; y < m->height; y++) {
+        putchar('|');
+        for (int x = 0; x < m->width; x++) {
+            if (m->current.x == x && m->current.y == y) {
+                putchar('P');
+            } else {
+                putchar(m->tiles[y][x]);
+            }
+        }
+        putchar('|');
+        putchar('\n');
+    }
+
+    for (int i = 0; i < m->width + 2; i++) putchar('-');
+    putchar('\n');
+}
+
+// Free all memory
+struct Maze *destroyMaze(struct Maze *m) {
+    if (!m) return NULL;
+    for (int i = 0; i < m->height; i++) {
+        free(m->tiles[i]);
+    }
+    free(m->tiles);
+    free(m);
+    printf("Error, your destroyMaze doesn't return NULL\n");
     return NULL;
 }
